@@ -72,11 +72,21 @@ char* mapper_receive(int file_index) {
 
 void mapper_to_reducer(std::unordered_map<std::string, int>& mini_map, int target) {
     int size = mini_map.size();
-    char *keys = (char*) malloc(sizeof(char) * 8 * size);
-    char* ptr = keys;
+    char *keys;
     std::vector<int> vals;
-    vals.reserve(size);
+    flattenMap(mini_map, keys, vals);
+    int* values = vals.data();
 
+    MPI_Send(&size, 1, MPI_INT, target, 0, MPI_COMM_WORLD);
+    MPI_Send(keys, size * 8, MPI_CHAR, target, 0, MPI_COMM_WORLD);
+    MPI_Send(values, size, MPI_INT, target, 0, MPI_COMM_WORLD);
+    free(keys);
+}
+
+void flattenMap(std::unordered_map<std::string, int>& mini_map, char* &keys, std::vector<int> &vals) {
+    int size = mini_map.size();
+    keys = (char*) malloc(sizeof(char) * 8 * size);
+    char* ptr = keys;
     for(auto kv : mini_map) {
         std::cout << kv.first << ": " << kv.second << std::endl;
         int length = kv.first.length();
@@ -85,12 +95,6 @@ void mapper_to_reducer(std::unordered_map<std::string, int>& mini_map, int targe
         vals.push_back(kv.second);  
         ptr += 8;
     }
-    int* values = vals.data();
-
-    MPI_Send(&size, 1, MPI_INT, target, 0, MPI_COMM_WORLD);
-    MPI_Send(keys, size * 8, MPI_CHAR, target, 0, MPI_COMM_WORLD);
-    MPI_Send(values, size, MPI_INT, target, 0, MPI_COMM_WORLD);
-    free(keys);
 }
 
 int reducer_receive(char* &key_buffer, int* &val_buffer) {
@@ -123,4 +127,17 @@ void reduce(char* key_buffer, int* val_buffer, std::unordered_map<std::string, i
         ptr += 8;
         overall_map[key] += val_ptr[i];
     }
+}
+
+void reducer_to_master(std::unordered_map<std::string, int>& overall_map) {
+    int size = overall_map.size();
+    char *keys;
+    std::vector<int> vals;
+    flattenMap(overall_map, keys, vals);
+    int* values = vals.data();
+
+    MPI_Send(&size, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);
+    MPI_Send(keys, size * 8, MPI_CHAR, 0, 0, MPI_COMM_WORLD);
+    MPI_Send(values, size, MPI_INT, 0, 0, MPI_COMM_WORLD);
+    free(keys);
 }

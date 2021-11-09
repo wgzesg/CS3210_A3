@@ -60,6 +60,20 @@ int main(int argc, char** argv) {
             }
             master_to_mapper(target, i, input_files_dir);
         }
+
+        for(int i = 0; i < num_reduce_workers; i++) {
+            int size;
+            MPI_Recv(&size, 1, MPI_INT, MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, &status);
+            int index = status.MPI_SOURCE;
+            char* key_buffer = (char*)malloc(sizeof(char) * size * 8);
+            int* val_buffer = (int*)malloc(sizeof(int) * size);
+            MPI_Recv(key_buffer, size * 8, MPI_CHAR, index, 0, MPI_COMM_WORLD, &status);
+            MPI_Recv(val_buffer, size, MPI_INT, index, 0, MPI_COMM_WORLD, &status);
+            std::cout << "[Rank 0]: Received from " << index << std::endl;
+            free(key_buffer);
+            free(val_buffer);
+        }
+    
     } else if ((rank >= 1) && (rank <= num_map_workers)) {
         // TODO: Implement map worker process logic
         printf("Rank (%d): This is a map worker process\n", rank);
@@ -111,8 +125,6 @@ int main(int argc, char** argv) {
             size = reducer_receive(key_buffer, val_buffer);
             printf("[Rank %d]: Received from %d with tag %d\n", rank, index, 0);
 
-            // TODO: Reduce data
-
             reduce(key_buffer, val_buffer, overall_map, size);
 
             // Clean up
@@ -120,6 +132,7 @@ int main(int argc, char** argv) {
             free(key_buffer);
             free(val_buffer);
         }
+        reducer_to_master(overall_map);
         // TODO: Send back to master
     }
     //Clean up
