@@ -11,8 +11,6 @@ extern "C" {
 #include <unordered_map>
 #include "helpers.h"
 
-void reduce(char* key_buffer, int* val_buffer, std::unordered_map<std::string, int>& overall_map, int size);
-
 int main(int argc, char** argv) {
     MPI_Init(&argc, &argv);
 
@@ -114,7 +112,8 @@ int main(int argc, char** argv) {
             printf("[Rank %d]: Received from %d with tag %d\n", rank, index, 0);
 
             // TODO: Reduce data
-            // reduce(key_buffer, val_buffer, overall_map, size);
+
+            reduce(key_buffer, val_buffer, overall_map, size);
 
             // Clean up
             index += 1;
@@ -126,17 +125,4 @@ int main(int argc, char** argv) {
     //Clean up
     MPI_Finalize();
     return 0;
-}
-
-void reduce(char* key_buffer, int* val_buffer, std::unordered_map<std::string, int>& overall_map, int size) {
-    std::string key;
-    char* ptr = key_buffer;
-    int* val_ptr = val_buffer;
-    for(int i = 0; i < size; i++) {
-        std::string key;
-        int val = *val_ptr;
-        key.assign(ptr);
-        ptr += 8;
-        // std::cout << key << ": " << val << std::endl;
-    }
 }

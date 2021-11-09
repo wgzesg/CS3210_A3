@@ -78,9 +78,12 @@ void mapper_to_reducer(std::unordered_map<std::string, int>& mini_map, int targe
     vals.reserve(size);
 
     for(auto kv : mini_map) {
+        std::cout << kv.first << ": " << kv.second << std::endl;
+        int length = kv.first.length();
         std::copy(kv.first.begin(), kv.first.end(), ptr);
+        *(ptr+length) = '\0';
         vals.push_back(kv.second);  
-        ptr+= 8;
+        ptr += 8;
     }
     int* values = vals.data();
 
@@ -105,10 +108,19 @@ int reducer_receive(char* &key_buffer, int* &val_buffer) {
     val_buffer = (int*)malloc(sizeof(int) * size);
     MPI_Recv(key_buffer, size * 8, MPI_CHAR, index, 0, MPI_COMM_WORLD, &status);
     MPI_Recv(val_buffer, size, MPI_INT, index, 0, MPI_COMM_WORLD, &status);
-    for(int i = 0; i < size * 8; i++) {
-        std::cout << key_buffer[i];
-    }
-    std::cout << std::endl;
     return size;
 }
 
+void reduce(char* key_buffer, int* val_buffer, std::unordered_map<std::string, int>& overall_map, int size) {
+    std::string key;
+    char* ptr = key_buffer;
+    int* val_ptr = val_buffer;
+    // printf("Received keys of size %d\n", size);
+    for(int i = 0; i < size; i++) {
+        std::string key;
+        int val = *val_ptr;
+        key.assign(ptr);
+        ptr += 8;
+        overall_map[key] += val_ptr[i];
+    }
+}
