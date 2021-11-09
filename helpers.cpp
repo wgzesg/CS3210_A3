@@ -7,9 +7,13 @@ extern "C" {
 }
 #include <vector>
 #include <iostream>
+#include <fstream>
 #include <string>
 #include <unordered_map>
 #include <mpi.h>
+
+const int KEY_SIZE = 8;
+const int MASTER_ID = 0;
 
 char* read_file(char* input_files_dir, int index) {
     char file_name[80];
@@ -17,7 +21,6 @@ char* read_file(char* input_files_dir, int index) {
     // printf("file name is %s", file_name);
     FILE *ptr;
     ptr = fopen(file_name,"r");
-    if( !ptr ) perror("blah.txt"),exit(1);
     fseek(ptr, 0, SEEK_END);
     int size = ftell(ptr);
     rewind(ptr);
@@ -32,7 +35,6 @@ char* read_file(char* input_files_dir, int index) {
 void split(std::unordered_map<int, std::unordered_map<std::string, int>>& mapper, MapTaskOutput* output, int num_baskets) {
     int size = output->len;
     for(int i= 0; i < size; i++) {
-        // std::cout << output->kvs[i].key << ": " << output->kvs[i].val << std::endl;
         int busket = partition(output->kvs[i].key, num_baskets);
         auto entry = mapper.find(busket);
         if (entry != mapper.end()) {
@@ -60,12 +62,12 @@ void master_to_mapper(int target, int file_index, char* input_files_dir) {
 char* mapper_receive(int file_index) {
     int content_size = 0;
     MPI_Status status;
-    MPI_Recv(&content_size, 1, MPI_INT, 0, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+    MPI_Recv(&content_size, 1, MPI_INT, MASTER_ID, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
     if(status.MPI_TAG == 100) {
         return NULL;
     }
     char *content_buffer = (char*)malloc(sizeof(content_buffer) * (content_size + 1));
-    MPI_Recv(content_buffer, content_size, MPI_CHAR, 0, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+    MPI_Recv(content_buffer, content_size, MPI_CHAR, MASTER_ID, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
     content_buffer[content_size] = '\0';
     return content_buffer;
 }
@@ -78,22 +80,22 @@ void mapper_to_reducer(std::unordered_map<std::string, int>& mini_map, int targe
     int* values = vals.data();
 
     MPI_Send(&size, 1, MPI_INT, target, 0, MPI_COMM_WORLD);
-    MPI_Send(keys, size * 8, MPI_CHAR, target, 0, MPI_COMM_WORLD);
+    MPI_Send(keys, size * KEY_SIZE, MPI_CHAR, target, 0, MPI_COMM_WORLD);
     MPI_Send(values, size, MPI_INT, target, 0, MPI_COMM_WORLD);
     free(keys);
 }
 
 void flattenMap(std::unordered_map<std::string, int>& mini_map, char* &keys, std::vector<int> &vals) {
     int size = mini_map.size();
-    keys = (char*) malloc(sizeof(char) * 8 * size);
+    keys = (char*) malloc(sizeof(char) * KEY_SIZE * size);
     char* ptr = keys;
     for(auto kv : mini_map) {
-        std::cout << kv.first << ": " << kv.second << std::endl;
+        // std::cout << kv.first << ": " << kv.second << std::endl;
         int length = kv.first.length();
         std::copy(kv.first.begin(), kv.first.end(), ptr);
         *(ptr+length) = '\0';
         vals.push_back(kv.second);  
-        ptr += 8;
+        ptr += KEY_SIZE;
     }
 }
 
@@ -102,15 +104,14 @@ int reducer_receive(char* &key_buffer, int* &val_buffer) {
     MPI_Status status;
     MPI_Recv(&size, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
     if (status.MPI_TAG == 1) {
-        std::cout << "no such key" << std::endl;
         key_buffer = nullptr;
         val_buffer = nullptr;
         return 0;
     }
     int index = status.MPI_SOURCE;
-    key_buffer = (char*)malloc(sizeof(char) * size * 8);
+    key_buffer = (char*)malloc(sizeof(char) * size * KEY_SIZE);
     val_buffer = (int*)malloc(sizeof(int) * size);
-    MPI_Recv(key_buffer, size * 8, MPI_CHAR, index, 0, MPI_COMM_WORLD, &status);
+    MPI_Recv(key_buffer, size * KEY_SIZE, MPI_CHAR, index, 0, MPI_COMM_WORLD, &status);
     MPI_Recv(val_buffer, size, MPI_INT, index, 0, MPI_COMM_WORLD, &status);
     return size;
 }
@@ -119,12 +120,11 @@ void reduce(char* key_buffer, int* val_buffer, std::unordered_map<std::string, i
     std::string key;
     char* ptr = key_buffer;
     int* val_ptr = val_buffer;
-    // printf("Received keys of size %d\n", size);
     for(int i = 0; i < size; i++) {
         std::string key;
         int val = *val_ptr;
         key.assign(ptr);
-        ptr += 8;
+        ptr += KEY_SIZE;
         overall_map[key] += val_ptr[i];
     }
 }
@@ -136,8 +136,37 @@ void reducer_to_master(std::unordered_map<std::string, int>& overall_map) {
     flattenMap(overall_map, keys, vals);
     int* values = vals.data();
 
-    MPI_Send(&size, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);
-    MPI_Send(keys, size * 8, MPI_CHAR, 0, 0, MPI_COMM_WORLD);
-    MPI_Send(values, size, MPI_INT, 0, 0, MPI_COMM_WORLD);
+    MPI_Send(&size, 1, MPI_INT, MASTER_ID, 0, MPI_COMM_WORLD);
+    MPI_Send(keys, size * KEY_SIZE, MPI_CHAR, 0, 0, MPI_COMM_WORLD);
+    MPI_Send(values, size, MPI_INT, MASTER_ID, 0, MPI_COMM_WORLD);
     free(keys);
+}
+
+void master_receive(std::ofstream& output_file) {
+    int size;
+    MPI_Status status;
+    MPI_Recv(&size, 1, MPI_INT, MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, &status);
+    int index = status.MPI_SOURCE;
+    char* key_buffer = (char*)malloc(sizeof(char) * size * 8);
+    int* val_buffer = (int*)malloc(sizeof(int) * size);
+    MPI_Recv(key_buffer, size * 8, MPI_CHAR, index, 0, MPI_COMM_WORLD, &status);
+    MPI_Recv(val_buffer, size, MPI_INT, index, 0, MPI_COMM_WORLD, &status);
+    // std::cout << "[Rank 0]: Received from " << index << std::endl;
+    writeToFile(output_file, key_buffer, val_buffer, size);
+    free(key_buffer);
+    free(val_buffer);
+}
+
+void writeToFile(std::ofstream& output_file, char* key_buffer, int* val_buffer, int size) {
+    std::string key;
+    char* ptr = key_buffer;
+    int* val_ptr = val_buffer;
+    for(int i = 0; i < size; i++) {
+        std::string key;
+        int val = *val_ptr;
+        key.assign(ptr);
+        ptr += KEY_SIZE;
+        val_ptr++;
+        output_file << key << " " << val << std::endl;
+    }
 }
