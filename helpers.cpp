@@ -99,24 +99,19 @@ void flattenMap(std::unordered_map<std::string, int>& mini_map, char* &keys, std
     }
 }
 
-int reducer_receive(char* &key_buffer, int* &val_buffer) {
+int reducer_handle_receive(std::unordered_map<std::string, std::vector<int>>& overall_map) {
     int size = 0;
     MPI_Status status;
     MPI_Recv(&size, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
     if (status.MPI_TAG == 1) {
-        key_buffer = nullptr;
-        val_buffer = nullptr;
         return 0;
     }
     int index = status.MPI_SOURCE;
-    key_buffer = (char*)malloc(sizeof(char) * size * KEY_SIZE);
-    val_buffer = (int*)malloc(sizeof(int) * size);
+    char* key_buffer = (char*)malloc(sizeof(char) * size * KEY_SIZE);
+    int* val_buffer = (int*)malloc(sizeof(int) * size);
     MPI_Recv(key_buffer, size * KEY_SIZE, MPI_CHAR, index, 0, MPI_COMM_WORLD, &status);
     MPI_Recv(val_buffer, size, MPI_INT, index, 0, MPI_COMM_WORLD, &status);
-    return size;
-}
 
-void reduce(char* key_buffer, int* val_buffer, std::unordered_map<std::string, int>& overall_map, int size) {
     std::string key;
     char* ptr = key_buffer;
     int* val_ptr = val_buffer;
@@ -124,8 +119,34 @@ void reduce(char* key_buffer, int* val_buffer, std::unordered_map<std::string, i
         std::string key;
         int val = *val_ptr;
         key.assign(ptr);
+        
+        auto entry = overall_map.find(key);
+        if (entry != overall_map.end()) {
+            auto curr_vect = entry->second;
+            curr_vect.push_back(val);
+            overall_map[key] = curr_vect;
+        } else {
+            std::vector<int> new_vect;
+            new_vect.push_back(val);
+            overall_map.insert({key, new_vect});
+        }
         ptr += KEY_SIZE;
-        overall_map[key] += val_ptr[i];
+        val_ptr++;
+    }
+    free(key_buffer);
+    free(val_buffer);
+    return size;
+}
+
+void reduce_map(std::unordered_map<std::string, std::vector<int>>& overall_map, std::unordered_map<std::string, int>& reduced_map) {
+    for (auto entry : overall_map) {
+        std::string key_str = entry.first;
+        char key[KEY_SIZE];
+        std::copy(key_str.begin(), key_str.end(), key);
+        int* vals = entry.second.data();
+        int length = entry.second.size();
+        KeyValue reduced = reduce(key, vals, length);
+        reduced_map[key_str] = reduced.val;
     }
 }
 

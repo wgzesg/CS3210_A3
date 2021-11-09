@@ -11,6 +11,20 @@ extern "C" {
 #include <unordered_map>
 #include <fstream>
 #include "helpers.h"
+#include <sys/time.h>
+
+long long wall_clock_time()
+{
+#ifdef LINUX
+    struct timespec tp;
+    clock_gettime(CLOCK_REALTIME, &tp);
+    return (long long)(tp.tv_nsec + (long long)tp.tv_sec * 1000000000ll);
+#else
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return (long long)(tv.tv_usec * 1000 + (long long)tv.tv_sec * 1000000000ll);
+#endif
+}
 
 int main(int argc, char** argv) {
     MPI_Init(&argc, &argv);
@@ -26,6 +40,7 @@ int main(int argc, char** argv) {
     int num_reduce_workers = atoi(argv[4]);
     char *output_file_name = argv[5];
     int map_reduce_task_num = atoi(argv[6]);
+    long long before, after;
 
     // Identify the specific map function to use
     MapTaskOutput* (*map) (char*);
@@ -41,6 +56,7 @@ int main(int argc, char** argv) {
             break;
     }
 
+    if(rank == 0) before = wall_clock_time();
     const int MAPPER_OFFSET = 1;
     const int REDUCER_OFFSET = 1 + num_map_workers;
     // Distinguish between master, map workers and reduce workers
@@ -106,26 +122,27 @@ int main(int argc, char** argv) {
         }
     } else {
         printf("Rank (%d): This is a reduce worker process\n", rank);
-        int index = 1;
+        int index = 0;
         int size;
-        char *key_buffer;
-        int *val_buffer;
-        std::unordered_map<std::string, int> overall_map;
-        while(index <= num_map_workers) {
+        std::unordered_map<std::string, std::vector<int>> overall_map;
+        std::unordered_map<std::string, int> reduced_map;
+        while(index < num_map_workers) {
             // Receive data
             // printf("[Rank %d]: Expecting a message from %d with tag %d\n", rank, index, 0);
-            size = reducer_receive(key_buffer, val_buffer);
+            size = reducer_handle_receive(overall_map);
             // printf("[Rank %d]: Received from %d with tag %d\n", rank, index, 0);
-            reduce(key_buffer, val_buffer, overall_map, size);
             // Clean up
             index += 1;
-            free(key_buffer);
-            free(val_buffer);
         }
-        reducer_to_master(overall_map);
-        // TODO: Send back to master
+        reduce_map(overall_map, reduced_map);
+        reducer_to_master(reduced_map);
     }
+    
     //Clean up
     MPI_Finalize();
+    if(rank == 0) {
+        after = wall_clock_time();
+        std::cout << "time taken " << ((float)(after - before)) / 1000000000 << std::endl;
+    }
     return 0;
 }

@@ -49,11 +49,10 @@ void mapper_to_reducer(std::unordered_map<std::string, int>& mapper, int target)
 
 /**
  * reducers receive from a mapper
- * @param key_buffer received list of keys 
- * @param val_buffer received list of values
- * @return number of key-val pairs
+ * @param overall_map hashmap that tempeerally store results to be reduced
+ * @return number of new received key-val pairs
  */
-int reducer_receive(char* &key_buffer, int* &val_buffer);
+int reducer_handle_receive(std::unordered_map<std::string, std::vector<int>>& overall_map);
 
 /**
  * convert a map to two buffers of keys and vals
@@ -65,11 +64,10 @@ void flattenMap(std::unordered_map<std::string, int>& mini_map, char* &keys, std
 
 /**
  * reduce key-vals pairs from different mappers
- * @param key_buffer new received keys buffer
- * @param val_buffer new received val buffer
- * @param overall_map currently reduced values
+ * @param overall_map hashmap that tempeerally store results to be reduced
+ * @param reduced_map hashmap that tempeerally store reduced results
  */
-void reduce(char* key_buffer, int* val_buffer, std::unordered_map<std::string, int>& overall_map, int size);
+void reduce_map(std::unordered_map<std::string, std::vector<int>>& overall_map, std::unordered_map<std::string, int>& reduced_map);
 
 /**
  * Send reduced result to master
