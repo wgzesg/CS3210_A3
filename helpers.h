@@ -10,6 +10,8 @@ extern "C" {
 #include <string>
 #include <unordered_map>
 
+long long wall_clock_time();
+
 /**
  * Read a file into a char*
  * @param input_files_dir path to files folder

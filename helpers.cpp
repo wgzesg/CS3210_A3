@@ -11,9 +11,23 @@ extern "C" {
 #include <string>
 #include <unordered_map>
 #include <mpi.h>
+#include <sys/time.h>
 
 const int KEY_SIZE = 8;
 const int MASTER_ID = 0;
+
+long long wall_clock_time()
+{
+#ifdef LINUX
+    struct timespec tp;
+    clock_gettime(CLOCK_REALTIME, &tp);
+    return (long long)(tp.tv_nsec + (long long)tp.tv_sec * 1000000000ll);
+#else
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return (long long)(tv.tv_usec * 1000 + (long long)tv.tv_sec * 1000000000ll);
+#endif
+}
 
 char* read_file(char* input_files_dir, int index) {
     char file_name[80];
@@ -104,7 +118,7 @@ int reducer_handle_receive(std::unordered_map<std::string, std::vector<int>>& ov
     MPI_Status status;
     MPI_Recv(&size, 1, MPI_INT, MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
     if (status.MPI_TAG == 1) {
-        return 0;
+        return -1;
     }
     int index = status.MPI_SOURCE;
     char* key_buffer = (char*)malloc(sizeof(char) * size * KEY_SIZE);
