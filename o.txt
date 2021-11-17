@@ -1,0 +1,3 @@
+others 22333500
+numbers 45360
+letters 72786420
