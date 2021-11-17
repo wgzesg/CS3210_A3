@@ -26,7 +26,7 @@ int main(int argc, char** argv) {
     int num_reduce_workers = atoi(argv[4]);
     char *output_file_name = argv[5];
     int map_reduce_task_num = atoi(argv[6]);
-    long long before, after, sum = 0;
+    long long before, after, comm_sum = 0, proc_sum = 0;
 
     // Identify the specific map function to use
     MapTaskOutput* (*map) (char*);
@@ -62,7 +62,7 @@ int main(int argc, char** argv) {
             // printf("[Rank %d]: Sending file %d to %d\n", rank, i, target);
             master_to_mapper(target, i, input_files_dir);
             after = wall_clock_time();
-            sum += after - before;
+            comm_sum += after - before;
         }
         std::ofstream output_file;
         output_file.open(output_file_name);
@@ -78,6 +78,7 @@ int main(int argc, char** argv) {
             // Receive data
             // printf("[Rank %d]: Expecting file from master\n", rank);
             MPI_Send(&rank, 1, MPI_INT, 0, 0, MPI_COMM_WORLD);
+            before = wall_clock_time();
             char* content = mapper_receive(index);
             // printf("[Rank %d]: Receivd file from master\n", rank);
             // No more file
@@ -85,6 +86,8 @@ int main(int argc, char** argv) {
                 // printf("[Rank %d]: No more file\n", rank);
                 break;
             }
+            after = wall_clock_time();
+            comm_sum += after - before;
             before = wall_clock_time();
             // Process data
             MapTaskOutput* output = map(content);
@@ -108,14 +111,17 @@ int main(int argc, char** argv) {
             free_map_task_output(output);
             mapper.erase(mapper.begin(), mapper.end()); 
             after = wall_clock_time();
-            sum += after - before;
+            proc_sum += after - before;
         }
         // Send termination to reducers
+        before = wall_clock_time();
         for(int i = 0; i < num_reduce_workers; i++) {
             int target = i % num_reduce_workers + REDUCER_OFFSET;
             int dummy = 0;
             MPI_Send(&dummy, 1, MPI_INT, target, 1, MPI_COMM_WORLD);
         }
+        after = wall_clock_time();
+        comm_sum += after - before;
     } else {
         printf("Rank (%d): This is a reduce worker process\n", rank);
         int index = 0;
@@ -135,14 +141,17 @@ int main(int argc, char** argv) {
         before = wall_clock_time();
         reduce_map(overall_map, reduced_map);
         after = wall_clock_time();
-        sum = after - before;
+        proc_sum = after - before;
+        before = wall_clock_time();
         reducer_to_master(reduced_map);
+        after = wall_clock_time();
+        comm_sum += after - before;
     }
     
     //Clean up
     MPI_Finalize();
 
-    std::cout << "Rank (" << rank << "):" << "time taken " << ((float)(sum)) / 1000000000 << std::endl;
-
+    std::cout << "Rank (" << rank << "):" << "processing time taken " << ((float)(proc_sum)) / 1000000000 << std::endl;
+    std::cout << "Rank (" << rank << "):" << "communication time taken " << ((float)(comm_sum)) / 1000000000 << std::endl;
     return 0;
 }
